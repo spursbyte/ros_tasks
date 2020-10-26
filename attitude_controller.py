@@ -61,6 +61,12 @@ class Edrone():
         self.Kp = [0, 0, 0]
         self.Ki = [0, 0, 0]
         self.Kd = [0, 0, 0]
+        self.prev_values = [0,0,0]
+        self.max_values = [1024, 1024, 1024, 1024]
+        self.min_values = [0, 0, 0, 0]
+        self.diff_err=[0,0,0]
+        self.iterm=[0.0,0]
+        
         # -----------------------Add other required variables for pid here ----------------------------------------------
         #
 
@@ -75,6 +81,11 @@ class Edrone():
 
         # Publishing /edrone/pwm, /roll_error, /pitch_error, /yaw_error
         self.pwm_pub = rospy.Publisher('/edrone/pwm', prop_speed, queue_size=1)
+        self.pwm_pub = rospy.Publisher('/roll_error',Float32, queue_size=1)
+        self.pwm_pub = rospy.Publisher('/pitch_error',Float32, queue_size=1)
+        self.pwm_pub = rospy.Publisher('/yaw_error',Float32, queue_size=1)
+       
+        
         # ------------------------Add other ROS Publishers here-----------------------------------------------------
 
         # -----------------------------------------------------------------------------------------------------------
@@ -83,6 +94,10 @@ class Edrone():
         rospy.Subscriber('/drone_command', edrone_cmd, self.drone_command_callback)
         rospy.Subscriber('/edrone/imu/data', Imu, self.imu_callback)
         rospy.Subscriber('/pid_tuning_roll', PidTune, self.roll_set_pid)
+        rospy.Subscriber('/pid_tuning_pitch', PidTune, self.pitch_set_pid)
+        rospy.Subscriber('/pid_tuning_yaw', PidTune, self.yaw_set_pid)
+          
+        
         # -------------------------Add other ROS Subscribers here----------------------------------------------------
         # ------------------------------------------------------------------------------------------------------------
 
@@ -99,11 +114,18 @@ class Edrone():
     def imu_callback(self, msg):
 
         self.drone_orientation_quaternion[0] = msg.orientation.x
+        self.drone_orientation_quaternion[1] = msg.orientation.y
+        self.drone_orientation_quaternion[2] = msg.orientation.z
+        self.drone_orientation_quaternion[3] = msg.orientation.w
+        
 
         # --------------------Set the remaining co-ordinates of the drone from msg----------------------------------------------
 
     def drone_command_callback(self, msg):
         self.setpoint_cmd[0] = msg.rcRoll
+        self.setpoint_cmd[1] = msg.rcYaw
+        self.setpoint_cmd[2] = msg.rcPitch
+        
 
         # ---------------------------------------------------------------------------------------------------------------
 
@@ -113,6 +135,14 @@ class Edrone():
         self.Kp[0] = roll.Kp * 0.06  # This is just for an example. You can change the ratio/fraction value accordingly
         self.Ki[0] = roll.Ki * 0.008
         self.Kd[0] = roll.Kd * 0.3
+    def pitch_set_pid(self, pitch):
+        self.Kp[1] = pitch.Kp * 0.06  # This is just for an example. You can change the ratio/fraction value accordingly
+        self.Ki[1] = pitch.Ki * 0.008
+        self.Kd[1] = pitch.Kd * 0.3
+    def roll_set_pid(self, yaw):
+        self.Kp[2] = yaw.Kp * 0.06  # This is just for an example. You can change the ratio/fraction value accordingly
+        self.Ki[2] = yaw.Ki * 0.008
+        self.Kd[2] = yaw.Kd * 0.3
 
     # ----------------------------Define callback function like roll_set_pid to tune pitch, yaw--------------
 
@@ -134,15 +164,74 @@ class Edrone():
         #   8. Update previous errors.eg: self.prev_error[1] = error[1] where index 1 corresponds to that of pitch (eg)
         #   9. Add error_sum to use for integral component
 
-        # Converting quaternion to euler angles
+        #1.converting quaternion to euler angles
         (self.drone_orientation_euler[0], self.drone_orientation_euler[1], self.drone_orientation_euler[2]) = tf.transformations.euler_from_quaternion([self.drone_orientation_quaternion[0], self.drone_orientation_quaternion[1], self.drone_orientation_quaternion[2], self.drone_orientation_quaternion[3]])
 
-        # Convertng the range from 1000 to 2000 in the range of -10 degree to 10 degree for roll axis
+        #2. Convertng the range from 1000 to 2000 in the range of -10 degree to 10 degree for roll axis
         self.setpoint_euler[0] = self.setpoint_cmd[0] * 0.02 - 30
-
+        self.setpoint_euler[1] = self.setpoint_cmd[1] * 0.02 - 30
+        self.setpoint_euler[2] = self.setpoint_cmd[2] * 0.02 - 30
+        
+        #3.calculating error
+        self.error[0] = self.setpoint_euler[0] - self.drone_orientation_euler[0]
+        self.error[1] = self.setpoint_euler[1] - self.drone_orientation_euler[1]
+        self.error[2] = self.setpoint_euler[2] - self.drone_orientation_euler[2]
+        #4.calculating difference in error
+        self.diff_err[0]= self.error[0]-self.prev_values[0]
+        self.diff_err[0]= self.error[0]-self.prev_values[0]
+        self.diff_err[0]= self.error[0]-self.prev_values[0]
+        self.iterm[0] = (self.iterm[0] + self.error[0]) * self.Ki[0]
+        self.iterm[1] = (self.iterm[1] + self.error[1]) * self.Ki[1]
+        self.iterm[2] = (self.iterm[2] + self.error[2]) * self.Ki[2]
+       #5.output for each axis
+        self.output_roll = self.Kp[0]*self.error[0] + self.iterm[0] + self.Kd[0]*(self.diff_err[0])
+	self.output_pitch = self.Kp[1]*self.error[1] + self.iterm[1] + self.Kd[1]*(self.diff_err[1])
+	self.output_yaw = self.Kp[2]*self.error[2] + self.iterm[2] + self.Kd[2]*(self.diff_err[2])
+        
+        
+        #6.calculating the prop speed
+        self.prop1_speed=self.pwm_cmd.prop1- self.output_roll + self.output_pitch + self.output_yaw
+        self.prop2_speed=self.pwm_cmp.prop2+ self.output_roll + self.output_pitch - self.output_yaw
+        self.prop3_speed=self.pwm_cmd.prop3+ self.output_roll - self.output_pitch + self.output_yaw
+        self.prop4_speed=self.pwm_cmd.prop4- self.output_roll - self.output_pitch - self.output_yaw
+        #8.limiting values
+        if(self.pwm_cmd.prop1 > self.max_values[0]):self.pwm_cmd.prop1 = self.max_values[0]
+        if(self.pwm_cmd.prop2 > self.max_values[1]):self.pwm_cmd.prop1 = self.max_values[1]
+        if(self.pwm_cmd.prop3 > self.max_values[2]):self.pwm_cmd.prop1 = self.max_values[2]
+        if(self.pwm_cmd.prop4 > self.max_values[3]):self.pwm_cmd.prop1 = self.max_values[3]
+                
+        if(self.pwm_cmd.prop1 < self.min_values[0]):self.pwm_cmd.prop1 = self.min_values[0]
+        if(self.pwm_cmd.prop2 < self.min_values[1]):self.pwm_cmd.prop1 = self.min_values[1]
+        if(self.pwm_cmd.prop3 < self.min_values[2]):self.pwm_cmd.prop1 = self.min_values[2]
+        if(self.pwm_cmd.prop4 < self.min_values[3]):self.pwm_cmd.prop1 = self.min_values[3]
+        
+        if(self.prop1_speed > self.max_values[0]):self.prop1_speed = self.max_values[0]
+        if(self.prop2_speed > self.max_values[1]):self.prop2_speed = self.max_values[1]
+        if(self.prop3_speed > self.max_values[2]):self.prop3_speed = self.max_values[2]
+        if(self.prop4_speed > self.max_values[3]):self.prop4_speed = self.max_values[3]
+        
+        if(self.prop1_speed < self.min_values[0]):self.prop1_speed = self.min_values[0]
+        if(self.prop2_speed < self.min_values[1]):self.prop2_speed = self.min_values[1]
+        if(self.prop3_speed < self.min_values[2]):self.prop3_speed = self.min_values[2]
+        if(self.prop4_speed < self.min_values[3]):self.prop4_speed = self.min_values[3]
+        
+        
+        #9.updating error values.
+        self.prev_values[0]=self.error[0]
+        self.prev_values[1]=self.error[1]
+        self.prev_values[2]=self.error[2]
+        
+    
+        
+        
+                
+        
+        
+      
         # Complete the equations for pitch and yaw axis
 
         # Also convert the range of 1000 to 2000 to 0 to 1024 for throttle here itslef
+        
 
         #
         #
