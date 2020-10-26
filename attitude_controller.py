@@ -195,7 +195,7 @@ class Edrone():
         
         #6.calculating the prop speed
         self.prop1_speed=self.pwm_cmd.prop1- self.output_roll + self.output_pitch + self.output_yaw
-        self.prop2_speed=self.pwm_cmp.prop2+ self.output_roll + self.output_pitch - self.output_yaw
+        self.prop2_speed=self.pwm_cmd.prop2+ self.output_roll + self.output_pitch - self.output_yaw
         self.prop3_speed=self.pwm_cmd.prop3+ self.output_roll - self.output_pitch + self.output_yaw
         self.prop4_speed=self.pwm_cmd.prop4- self.output_roll - self.output_pitch - self.output_yaw
         #8.limiting values
