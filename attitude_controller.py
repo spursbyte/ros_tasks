@@ -40,7 +40,7 @@ class Edrone():
 
         # This is the setpoint that will be received from the drone_command in the range from 1000 to 2000
         # [r_setpoint, p_setpoint, y_setpoint]
-        self.setpoint_cmd = [0.0, 0.0, 0.0]
+        self.setpoint_cmd = [0.0, 0.0, 0.0,0.0]
 
         # The setpoint of orientation in euler angles at which you want to stabilize the drone
         # [r_setpoint, p_psetpoint, y_setpoint]
@@ -125,6 +125,8 @@ class Edrone():
         self.setpoint_cmd[0] = msg.rcRoll
         self.setpoint_cmd[1] = msg.rcYaw
         self.setpoint_cmd[2] = msg.rcPitch
+	self.setpoint_cmd[3] = msg.rcThrottle
+	
         
 
         # ---------------------------------------------------------------------------------------------------------------
@@ -171,6 +173,8 @@ class Edrone():
         self.setpoint_euler[0] = self.setpoint_cmd[0] * 0.02 - 30
         self.setpoint_euler[1] = self.setpoint_cmd[1] * 0.02 - 30
         self.setpoint_euler[2] = self.setpoint_cmd[2] * 0.02 - 30
+	
+	self.throttle=self.setpoint_cmd[3]*1.024-1024
         
         #3.calculating error
         self.error[0] = self.setpoint_euler[0] - self.drone_orientation_euler[0]
